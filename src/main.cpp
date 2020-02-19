@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
     const auto& table = toml_find<toml::basic_value<toml::discard_comments, std::unordered_map, std::vector>>(data, "params");
     const auto& in = toml_find<std::vector<std::string>>(table, "input");
     const auto& out = toml_find<std::vector<std::string>>(table, "output");
-    const auto chunk_size = toml_find<uint64_t>(table, "chunk_size");
+    const auto chunk_size = toml_find<size_t>(table, "chunk_size");
     std::unique_ptr<char[]> buf;
     try {
         buf = std::unique_ptr<char[]>{new char[chunk_size]};
@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
         std::cerr << "Error: sizes of input and ouput arrays mimatch\n";
         return 1;
     }
-    for(uint64_t i = 0; i < in.size(); ++i) {
+    for(size_t i = 0; i < in.size(); ++i) {
         const std::string& in_name = path + in[i];
         const std::string& out_name = path + out[i];
         std::cout << "Copying from \"" << in_name << "\" to \"" << out_name << "\"\n";
