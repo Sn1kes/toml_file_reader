@@ -1,4 +1,3 @@
-//#include <QCoreApplication>
 #include <iostream>
 #include <string>
 #include <cstdio>
@@ -96,8 +95,5 @@ int main(int argc, char *argv[])
             }
         } while(!std::feof(in_file.get()));
     }
-
-    //QCoreApplication a(argc, argv);
-    //return a.exec();
     return 0;
 }
