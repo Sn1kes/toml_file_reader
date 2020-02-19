@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <include\toml.hpp>
 
+//Wrapper for finding values in toml
 template<typename T>
 T toml_find(const toml::basic_value<toml::discard_comments, std::unordered_map, std::vector>& table, const char *val)
 {
@@ -17,6 +18,7 @@ T toml_find(const toml::basic_value<toml::discard_comments, std::unordered_map, 
     }
 }
 
+//Wrapper for opening files
 std::unique_ptr<std::FILE, decltype(&std::fclose)> file_open(const char *filename, const char *mode)
 {
     std::unique_ptr<std::FILE, decltype(&std::fclose)> file {std::fopen(filename, mode), &std::fclose};
@@ -27,6 +29,8 @@ std::unique_ptr<std::FILE, decltype(&std::fclose)> file_open(const char *filenam
     return file;
 }
 
+//Program takes "-config" parameter with path to "config.toml" file.
+//If no parameter was specified, root path is taken
 int main(int argc, char *argv[])
 {
     std::string path{};
@@ -42,8 +46,8 @@ int main(int argc, char *argv[])
             return 1;
         }
         std::string arg_2 {argv[2]};
-        if(arg_2[arg_2.length() - 1] != '\\') {
-            arg_2 += "\\";
+        if(arg_2[arg_2.length() - 1] != '\\' && arg_2[arg_2.length() - 1] != '/') {
+            arg_2 += "/";
         }
         path = arg_2;
         config = arg_2 + "config.toml";
