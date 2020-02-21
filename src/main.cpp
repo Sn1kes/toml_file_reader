@@ -1,6 +1,8 @@
 #include <iostream>
 #include <string>
 #include <cstdio>
+#include <thread>
+#include <future>
 #include <include\toml.hpp>
 
 //Wrapper for finding values in toml
@@ -9,24 +11,50 @@ T toml_find(const toml::basic_value<toml::discard_comments, std::unordered_map, 
 {
     try {
         return toml::find<T>(table, val);
-    } catch (const std::out_of_range& e) {
+    } catch(const std::out_of_range& e) {
         std::cerr << "Value \"" << val << "\" not found in config:\n" << e.what();
         exit(1);
-    } catch (const toml::type_error& e) {
+    } catch(const toml::type_error& e) {
         std::cerr << "Invalid type of value \"" << val << "\"\n" << e.what();
         exit(1);
     }
 }
 
-//Wrapper for opening files
-std::unique_ptr<std::FILE, decltype(&std::fclose)> file_open(const char *filename, const char *mode)
+//Thread execution function
+void thread_process(const std::size_t id, const std::string&& in_name, const std::string&& out_name, std::promise<uint8_t>&& res)
 {
-    std::unique_ptr<std::FILE, decltype(&std::fclose)> file {std::fopen(filename, mode), &std::fclose};
-    if(!file.get()) {
-        std::cerr << "Cannot open file \"" << filename << "\"\n";
-        exit(1);
+    std::vector<unsigned char> buf;
+    try {
+        buf.reserve(512);
+        buf.resize(512);
     }
-    return file;
+    catch(...) {
+        res.set_exception(std::current_exception());
+        return;
+    }
+    const std::unique_ptr<std::FILE, decltype(&std::fclose)> in_file {std::fopen(in_name.c_str(), "rb"), std::fclose};
+    if(!in_file.get()) {
+        res.set_value(1);
+        return;
+    }
+    const std::unique_ptr<std::FILE, decltype(&std::fclose)> out_file {std::fopen(out_name.c_str(), "w+b"), std::fclose};
+    if(!out_file.get()) {
+        res.set_value(2);
+        return;
+    }
+    do {
+        const size_t num_read = std::fread(buf.data(), 1, 512, in_file.get());
+        if(std::ferror(in_file.get())) {
+            res.set_value(3);
+            return;
+        }
+        std::fwrite(buf.data(), 1, num_read, out_file.get());
+        if(std::ferror(in_file.get())) {
+            res.set_value(4);
+            return;
+        }
+    } while(!std::feof(in_file.get()));
+    res.set_value(0);
 }
 
 //Program takes "-config" parameter with path to "config.toml" file.
@@ -57,47 +85,95 @@ int main(int argc, char *argv[])
     toml::value data;
     try {
         data = toml::parse(config);
-    } catch (std::runtime_error& e) {
+    } catch(std::runtime_error& e) {
         std::cerr << "Error opening toml config!\n" << e.what();
         return 1;
-    } catch (toml::syntax_error& e) {
+    } catch(toml::syntax_error& e) {
         std::cerr << "Syntax error in toml config:\n" << e.what();
         return 1;
     }
     const auto& table = toml_find<toml::basic_value<toml::discard_comments, std::unordered_map, std::vector>>(data, "params");
     const auto& in = toml_find<std::vector<std::string>>(table, "input");
     const auto& out = toml_find<std::vector<std::string>>(table, "output");
-    const auto chunk_size = toml_find<size_t>(table, "chunk_size");
-    std::unique_ptr<char[]> buf;
-    try {
-        buf = std::unique_ptr<char[]>{new char[chunk_size]};
-    }
-    catch (const std::bad_alloc& e) {
-        std::cerr << "Error while allocating chunk buffer(probably chunk size is too big):\n" << e.what();
-        return 1;
-    }
-    if(in.size() != out.size()) {
+    const std::size_t files_num = in.size();
+    if(files_num != out.size()) {
         std::cerr << "Error: sizes of input and ouput arrays mimatch\n";
         return 1;
     }
-    for(size_t i = 0; i < in.size(); ++i) {
-        const std::string& in_name = path + in[i];
-        const std::string& out_name = path + out[i];
-        std::cout << "Copying from \"" << in_name << "\" to \"" << out_name << "\"\n";
-        const std::unique_ptr<std::FILE, decltype(&std::fclose)> in_file = file_open(in_name.c_str(), "rb");
-        const std::unique_ptr<std::FILE, decltype(&std::fclose)> out_file = file_open(out_name.c_str(), "w+b");
-        do {
-            const size_t num_read = std::fread(buf.get(), 1, chunk_size, in_file.get());
-            if(std::ferror(in_file.get())) {
-                std::cerr << "Reading error occured\n";
-                return 1;
-            }
-            std::fwrite(buf.get(), 1, num_read, out_file.get());
-            if(std::ferror(in_file.get())) {
-                std::cerr << "Writing error occured\n";
-                return 1;
-            }
-        } while(!std::feof(in_file.get()));
+    std::vector<std::thread> threads_arr;
+    std::vector<std::future<uint8_t>> res_arr;
+    try {
+        threads_arr.reserve(files_num);
+        threads_arr.resize(files_num);
+        res_arr.reserve(files_num);
+        res_arr.resize(files_num);
     }
-    return 0;
+    catch(const std::length_error& e) {
+        std::cerr << "Error: number of files is too big:\n" << e.what();
+        return 1;
+    }
+    catch(const std::bad_alloc& e) {
+        std::cerr << "Error while allocating buffers(probably too many files has been specified):\n" << e.what();
+        return 1;
+    }
+    for(std::size_t i = 0; i < files_num; ++i) {
+        const std::string in_name = path + in[i];
+        const std::string out_name = path + out[i];
+        std::promise<uint8_t> pr;
+        res_arr[i] = pr.get_future();
+        threads_arr[i] = std::thread(thread_process, i, std::move(in_name), std::move(out_name), std::move(pr));
+    }
+    for(std::size_t i = 0; i < files_num; ++i) {
+        threads_arr[i].join();
+    }
+    int ret_val = 0;
+    for(std::size_t i = 0; i < files_num; ++i) {
+        uint8_t res;
+        try {
+            res = res_arr[i].get();
+        }
+        catch(const std::length_error& e) {
+            std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                "\"\n\tLength of chunk buffer is too big:\n" << e.what();
+            ret_val = 1;
+            continue;
+        }
+        catch(const std::bad_alloc& e) {
+            std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                "\"\n\tAllocating chunk buffer raised exception:\n" << e.what();
+            ret_val = 1;
+            continue;
+        }
+        switch (res) {
+            case 1: {
+                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                    "\"\n\tCannot open file \"" << in[i] << "\"\n";
+                ret_val = 1;
+            }
+            break;
+            case 2: {
+                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                    "\"\n\tCannot open file \"" << out[i] << "\"\n";
+                ret_val = 1;
+            }
+            break;
+            case 3: {
+                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                    "\"\n\tReading error occured\n";
+                ret_val = 1;
+            }
+            break;
+            case 4: {
+                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                    "\"\n\tWriting error occured\n";
+                ret_val = 1;
+            }
+            break;
+            default: {
+                std::cout << "Sucess copying from \"" << in[i] << "\" to \"" << out[i] << "\"\n";
+            }
+            break;
+        }
+    }
+    return ret_val;
 }
