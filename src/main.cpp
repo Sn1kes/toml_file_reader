@@ -63,10 +63,10 @@ void thread_process(const std::string&& in_name, const std::string&& out_name,
             return;
         }
         try {
-            if((t3 < t2) && (chunk_size <= max_size_half)) {
+            if((t2 < t3) && (chunk_size <= max_size_half)) {
                 chunk_size <<= 1;
                 buf.resize(chunk_size);
-            } else if((t3 > t2) && chunk_size > 1) {
+            } else if((t2 > t3) && chunk_size > 1) {
                 chunk_size >>= 1;
                 buf.resize(chunk_size);
             }
@@ -164,34 +164,34 @@ int main(int argc, char *argv[])
             continue;
         }
         switch (res) {
-            case 1: {
-                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
-                    "\"\n\tCannot open file \"" << in[i] << "\"\n";
-                ret_val = 1;
-            }
-            break;
-            case 2: {
-                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
-                    "\"\n\tCannot open file \"" << out[i] << "\"\n";
-                ret_val = 1;
-            }
-            break;
-            case 3: {
-                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
-                    "\"\n\tReading error occured\n";
-                ret_val = 1;
-            }
-            break;
-            case 4: {
-                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
-                    "\"\n\tWriting error occured\n";
-                ret_val = 1;
-            }
-            break;
-            default: {
-                std::cout << "Sucess copying from \"" << in[i] << "\" to \"" << out[i] << "\"\n";
-            }
-            break;
+        case 1: {
+            std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                "\"\n\tCannot open file \"" << in[i] << "\"\n";
+            ret_val = 1;
+        }
+              break;
+        case 2: {
+            std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                "\"\n\tCannot open file \"" << out[i] << "\"\n";
+            ret_val = 1;
+        }
+              break;
+        case 3: {
+            std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                "\"\n\tReading error occured\n";
+            ret_val = 1;
+        }
+              break;
+        case 4: {
+            std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                "\"\n\tWriting error occured\n";
+            ret_val = 1;
+        }
+              break;
+        default: {
+            std::cout << "Sucess copying from \"" << in[i] << "\" to \"" << out[i] << "\"\n";
+        }
+               break;
         }
     }
     return ret_val;

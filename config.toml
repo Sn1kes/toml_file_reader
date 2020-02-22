@@ -5,4 +5,4 @@ title = "Config"
 input = ["in1.in", "in2.in", "in3.in"]
 output = ["in1.out", "out2.out", "out3.out"]
 #in bytes per second
-speed = 64
+speed = 4096
