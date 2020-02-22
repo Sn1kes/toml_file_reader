@@ -3,5 +3,6 @@ title = "Config"
 
 [params]
 input = ["in1.in", "in2.in", "in3.in"]
-output = ["out1.out", "out2.out", "out3.out"]
-chunk_size = 4096
+output = ["in1.out", "out2.out", "out3.out"]
+#in bytes per second
+speed = 64

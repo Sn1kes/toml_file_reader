@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <thread>
 #include <future>
+#include <chrono>
 #include <include\toml.hpp>
 
 //Wrapper for finding values in toml
@@ -21,12 +22,14 @@ T toml_find(const toml::basic_value<toml::discard_comments, std::unordered_map, 
 }
 
 //Thread execution function
-void thread_process(const std::size_t id, const std::string&& in_name, const std::string&& out_name, std::promise<uint8_t>&& res)
+void thread_process(const std::string&& in_name, const std::string&& out_name,
+    const std::size_t speed, std::promise<uint8_t>&& res)
 {
+    size_t chunk_size = 1;
     std::vector<unsigned char> buf;
     try {
-        buf.reserve(512);
-        buf.resize(512);
+        buf.reserve(chunk_size);
+        buf.resize(chunk_size);
     }
     catch(...) {
         res.set_exception(std::current_exception());
@@ -42,8 +45,14 @@ void thread_process(const std::size_t id, const std::string&& in_name, const std
         res.set_value(2);
         return;
     }
+    const size_t max_size_half = 0x8000; //64 KiB max buffer size
     do {
-        const size_t num_read = std::fread(buf.data(), 1, 512, in_file.get());
+        const auto t1 = std::chrono::time_point_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now());
+        const size_t num_read = std::fread(buf.data(), 1, chunk_size, in_file.get());
+        const auto t2 = std::chrono::time_point_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now());
+        const auto req_dur = std::chrono::nanoseconds((uint64_t)((float)chunk_size * 1000000000.f / (float)speed));
+        const auto t3 = t1 + req_dur;
+        std::this_thread::sleep_until(t3);
         if(std::ferror(in_file.get())) {
             res.set_value(3);
             return;
@@ -53,6 +62,15 @@ void thread_process(const std::size_t id, const std::string&& in_name, const std
             res.set_value(4);
             return;
         }
+        try {
+            if((t3 < t2) && (chunk_size <= max_size_half)) {
+                chunk_size <<= 1;
+                buf.resize(chunk_size);
+            } else if((t3 > t2) && chunk_size > 1) {
+                chunk_size >>= 1;
+                buf.resize(chunk_size);
+            }
+        } catch(...) {}
     } while(!std::feof(in_file.get()));
     res.set_value(0);
 }
@@ -95,6 +113,7 @@ int main(int argc, char *argv[])
     const auto& table = toml_find<toml::basic_value<toml::discard_comments, std::unordered_map, std::vector>>(data, "params");
     const auto& in = toml_find<std::vector<std::string>>(table, "input");
     const auto& out = toml_find<std::vector<std::string>>(table, "output");
+    const auto speed = toml_find<std::size_t>(table, "speed");
     const std::size_t files_num = in.size();
     if(files_num != out.size()) {
         std::cerr << "Error: sizes of input and ouput arrays mimatch\n";
@@ -121,7 +140,7 @@ int main(int argc, char *argv[])
         const std::string out_name = path + out[i];
         std::promise<uint8_t> pr;
         res_arr[i] = pr.get_future();
-        threads_arr[i] = std::thread(thread_process, i, std::move(in_name), std::move(out_name), std::move(pr));
+        threads_arr[i] = std::thread(thread_process, std::move(in_name), std::move(out_name), speed, std::move(pr));
     }
     for(std::size_t i = 0; i < files_num; ++i) {
         threads_arr[i].join();
