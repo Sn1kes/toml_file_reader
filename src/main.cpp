@@ -45,7 +45,7 @@ void thread_process(const std::string&& in_name, const std::string&& out_name,
         res.set_value(2);
         return;
     }
-    const size_t max_size_half = 0x8000; //64 KiB max buffer size
+    constexpr size_t max_size_half = 0x8000; //64 KiB max buffer size
     do {
         const auto t1 = std::chrono::time_point_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now());
         const size_t num_read = std::fread(buf.data(), 1, chunk_size, in_file.get());
