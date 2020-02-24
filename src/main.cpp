@@ -83,6 +83,7 @@ void App::run()
         if(!(arg_1 == std::string{"-config"})) {
             std::cerr << "Invalid argument!\n";
             qapp->exit(EXIT_FAILURE);
+            return;
         }
         std::string arg_2 {args.at(2).toStdString()};
         if(arg_2[arg_2.length() - 1] != '\\' && arg_2[arg_2.length() - 1] != '/') {
@@ -99,9 +100,11 @@ void App::run()
     } catch(std::runtime_error& e) {
         std::cerr << "Error opening toml config!\n" << e.what();
         qapp->exit(EXIT_FAILURE);
+        return;
     } catch(toml::syntax_error& e) {
         std::cerr << "Syntax error in toml config:\n" << e.what();
         qapp->exit(EXIT_FAILURE);
+        return;
     }
     const auto& table = toml_find<toml::basic_value<toml::discard_comments, std::unordered_map, std::vector>>(data, "params");
     const auto& in = toml_find<std::vector<std::string>>(table, "input");
@@ -111,6 +114,7 @@ void App::run()
     if(files_num != out.size()) {
         std::cerr << "Error: sizes of input and ouput arrays mimatch\n";
         qapp->exit(EXIT_FAILURE);
+        return;
     }
     std::vector<std::thread> threads_arr;
     std::vector<std::future<uint8_t>> res_arr;
@@ -123,10 +127,12 @@ void App::run()
     catch(const std::length_error& e) {
         std::cerr << "Error: number of files is too big:\n" << e.what();
         qapp->exit(EXIT_FAILURE);
+        return;
     }
     catch(const std::bad_alloc& e) {
         std::cerr << "Error while allocating buffers(probably too many files has been specified):\n" << e.what();
         qapp->exit(EXIT_FAILURE);
+        return;
     }
     for(std::size_t i = 0; i < files_num; ++i) {
         const std::string in_name = path + in[i];
