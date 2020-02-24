@@ -17,7 +17,6 @@ void thread_process(const std::string&& in_name, const std::string&& out_name,
     constexpr size_t max_size_half = 0x8000; //64 KiB max buffer size
     std::vector<unsigned char> buf;
     try {
-        buf.reserve(max_size_half);
         buf.resize(chunk_size);
     }
     catch(...) {
