@@ -4,31 +4,20 @@
 #include <thread>
 #include <future>
 #include <chrono>
-#include <include\toml.hpp>
 
-//Wrapper for finding values in toml
-template<typename T>
-T toml_find(const toml::basic_value<toml::discard_comments, std::unordered_map, std::vector>& table, const char *val)
-{
-    try {
-        return toml::find<T>(table, val);
-    } catch(const std::out_of_range& e) {
-        std::cerr << "Value \"" << val << "\" not found in config:\n" << e.what();
-        exit(1);
-    } catch(const toml::type_error& e) {
-        std::cerr << "Invalid type of value \"" << val << "\"\n" << e.what();
-        exit(1);
-    }
-}
+#include <QCoreApplication>
+#include <QTimer>
+#include "include\app.hpp"
 
 //Thread execution function
 void thread_process(const std::string&& in_name, const std::string&& out_name,
     const std::size_t speed, std::promise<uint8_t>&& res)
 {
     size_t chunk_size = 1;
+    constexpr size_t max_size_half = 0x8000; //64 KiB max buffer size
     std::vector<unsigned char> buf;
     try {
-        buf.reserve(chunk_size);
+        buf.reserve(max_size_half);
         buf.resize(chunk_size);
     }
     catch(...) {
@@ -45,12 +34,11 @@ void thread_process(const std::string&& in_name, const std::string&& out_name,
         res.set_value(2);
         return;
     }
-    constexpr size_t max_size_half = 0x8000; //64 KiB max buffer size
     do {
         const auto t1 = std::chrono::time_point_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now());
         const size_t num_read = std::fread(buf.data(), 1, chunk_size, in_file.get());
         const auto t2 = std::chrono::time_point_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now());
-        const auto req_dur = std::chrono::nanoseconds((uint64_t)((float)chunk_size * 1000000000.f / (float)speed));
+        const auto req_dur = std::chrono::nanoseconds(static_cast<uint64_t>((static_cast<float>(chunk_size) * 1000000000.f / static_cast<float>(speed))));
         const auto t3 = t1 + req_dur;
         std::this_thread::sleep_until(t3);
         if(std::ferror(in_file.get())) {
@@ -75,23 +63,29 @@ void thread_process(const std::string&& in_name, const std::string&& out_name,
     res.set_value(0);
 }
 
-//Program takes "-config" parameter with path to "config.toml" file.
-//If no parameter was specified, root path is taken
-int main(int argc, char *argv[])
+App::App(QObject *parent) :
+    QObject(parent)
+{
+    qapp = QCoreApplication::instance();
+}
+
+void App::run()
 {
     std::string path{};
     std::string config{};
-    if(argc > 1) {
-        if(argc != 3) {
+    QStringList args = qapp->arguments();
+    if(args.size() > 1) {
+        if(args.size() != 3) {
             std::cerr << "Invalid number of arguments!\n";
-            return 1;
+            qapp->exit(EXIT_FAILURE);
+            return;
         }
-        const std::string arg_1 {argv[1]};
+        const std::string arg_1 {args.at(1).toStdString()};
         if(!(arg_1 == std::string{"-config"})) {
             std::cerr << "Invalid argument!\n";
-            return 1;
+            qapp->exit(EXIT_FAILURE);
         }
-        std::string arg_2 {argv[2]};
+        std::string arg_2 {args.at(2).toStdString()};
         if(arg_2[arg_2.length() - 1] != '\\' && arg_2[arg_2.length() - 1] != '/') {
             arg_2 += "/";
         }
@@ -105,10 +99,10 @@ int main(int argc, char *argv[])
         data = toml::parse(config);
     } catch(std::runtime_error& e) {
         std::cerr << "Error opening toml config!\n" << e.what();
-        return 1;
+        qapp->exit(EXIT_FAILURE);
     } catch(toml::syntax_error& e) {
         std::cerr << "Syntax error in toml config:\n" << e.what();
-        return 1;
+        qapp->exit(EXIT_FAILURE);
     }
     const auto& table = toml_find<toml::basic_value<toml::discard_comments, std::unordered_map, std::vector>>(data, "params");
     const auto& in = toml_find<std::vector<std::string>>(table, "input");
@@ -117,7 +111,7 @@ int main(int argc, char *argv[])
     const std::size_t files_num = in.size();
     if(files_num != out.size()) {
         std::cerr << "Error: sizes of input and ouput arrays mimatch\n";
-        return 1;
+        qapp->exit(EXIT_FAILURE);
     }
     std::vector<std::thread> threads_arr;
     std::vector<std::future<uint8_t>> res_arr;
@@ -129,11 +123,11 @@ int main(int argc, char *argv[])
     }
     catch(const std::length_error& e) {
         std::cerr << "Error: number of files is too big:\n" << e.what();
-        return 1;
+        qapp->exit(EXIT_FAILURE);
     }
     catch(const std::bad_alloc& e) {
         std::cerr << "Error while allocating buffers(probably too many files has been specified):\n" << e.what();
-        return 1;
+        qapp->exit(EXIT_FAILURE);
     }
     for(std::size_t i = 0; i < files_num; ++i) {
         const std::string in_name = path + in[i];
@@ -145,7 +139,7 @@ int main(int argc, char *argv[])
     for(std::size_t i = 0; i < files_num; ++i) {
         threads_arr[i].join();
     }
-    int ret_val = 0;
+    int ret_val = EXIT_SUCCESS;
     for(std::size_t i = 0; i < files_num; ++i) {
         uint8_t res;
         try {
@@ -154,45 +148,56 @@ int main(int argc, char *argv[])
         catch(const std::length_error& e) {
             std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
                 "\"\n\tLength of chunk buffer is too big:\n" << e.what();
-            ret_val = 1;
+            ret_val = EXIT_FAILURE;
             continue;
         }
         catch(const std::bad_alloc& e) {
             std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
                 "\"\n\tAllocating chunk buffer raised exception:\n" << e.what();
-            ret_val = 1;
+            ret_val = EXIT_FAILURE;
             continue;
         }
         switch (res) {
-        case 1: {
-            std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
-                "\"\n\tCannot open file \"" << in[i] << "\"\n";
-            ret_val = 1;
-        }
-              break;
-        case 2: {
-            std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
-                "\"\n\tCannot open file \"" << out[i] << "\"\n";
-            ret_val = 1;
-        }
-              break;
-        case 3: {
-            std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
-                "\"\n\tReading error occured\n";
-            ret_val = 1;
-        }
-              break;
-        case 4: {
-            std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
-                "\"\n\tWriting error occured\n";
-            ret_val = 1;
-        }
-              break;
-        default: {
-            std::cout << "Sucess copying from \"" << in[i] << "\" to \"" << out[i] << "\"\n";
-        }
-               break;
+            case 1: {
+                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                    "\"\n\tCannot open file \"" << in[i] << "\"\n";
+                ret_val = EXIT_FAILURE;
+            }
+            break;
+            case 2: {
+                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                    "\"\n\tCannot open file \"" << out[i] << "\"\n";
+                ret_val = EXIT_FAILURE;
+            }
+            break;
+            case 3: {
+                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                    "\"\n\tReading error occured\n";
+                ret_val = EXIT_FAILURE;
+            }
+            break;
+            case 4: {
+                std::cerr << "Failure copying from \"" << in[i] << "\" to \"" << out[i] <<
+                    "\"\n\tWriting error occured\n";
+                ret_val = EXIT_FAILURE;
+            }
+            break;
+            default: {
+                std::cout << "Sucess copying from \"" << in[i] << "\" to \"" << out[i] << "\"\n";
+            }
+            break;
         }
     }
-    return ret_val;
+    qapp->exit(ret_val);
+}
+
+//Program takes "-config" parameter with path to "config.toml" file.
+//If no parameter was specified, root path is taken
+int main(int argc, char *argv[])
+{
+    QCoreApplication qapp(argc, argv);
+    App app;
+
+    QTimer::singleShot(10, &app, SLOT(run()));
+    return qapp.exec();
 }
