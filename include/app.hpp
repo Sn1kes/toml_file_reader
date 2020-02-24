@@ -31,9 +31,11 @@ T App::toml_find(const toml::basic_value<toml::discard_comments, std::unordered_
     } catch(const std::out_of_range& e) {
         std::cerr << "Value \"" << val << "\" not found in config:\n" << e.what();
         qapp->exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     } catch(const toml::type_error& e) {
         std::cerr << "Invalid type of value \"" << val << "\"\n" << e.what();
         qapp->exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
     return ret;
 }
