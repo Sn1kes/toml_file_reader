@@ -70,7 +70,6 @@ App::App(QObject *parent) :
 
 void App::run()
 {
-    std::string path{};
     std::string config{};
     QStringList args = qapp->arguments();
     if(args.size() > 1) {
@@ -89,7 +88,6 @@ void App::run()
         if(arg_2[arg_2.length() - 1] != '\\' && arg_2[arg_2.length() - 1] != '/') {
             arg_2 += "/";
         }
-        path = arg_2;
         config = arg_2 + "config.toml";
     } else {
         config = "config.toml";
@@ -135,8 +133,8 @@ void App::run()
         return;
     }
     for(std::size_t i = 0; i < files_num; ++i) {
-        const std::string in_name = path + in[i];
-        const std::string out_name = path + out[i];
+        const std::string in_name = in[i];
+        const std::string out_name = out[i];
         std::promise<uint8_t> pr;
         res_arr[i] = pr.get_future();
         threads_arr[i] = std::thread(thread_process, std::move(in_name), std::move(out_name), speed, std::move(pr));
